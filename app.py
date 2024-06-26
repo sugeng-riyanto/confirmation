@@ -19,7 +19,7 @@ import re
 warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas_compat")
 
 # Initial setup
-st.title("Student Information Form")
+st.title("Confirmation Form for Invoice Delivery and General Information")
 st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and general information announcements from Sekolah Harapan Bangsa.")
 st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
 st.write("If you wish to receive invoices separately for both Father and Mother with different WA numbers and emails, please fill out the form twice alternately.")
