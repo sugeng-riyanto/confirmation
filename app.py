@@ -20,9 +20,9 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas
 
 # Initial setup
 st.title("Student Information Form")
-st.write("Yth Ibu/Bapak, berikut ini adalah formulir konfirmasi untuk pengiriman invoice dan pengumuman informasi secara umum dari Sekolah Harapan Bangsa.")
-st.write("Pastikan format no WA dan Email benar dan masih aktif.")
-st.write("Jika Ibu/Bapak menginginkan pengiriman invoice untuk Ayah dan Bunda dengan No WA dan Email yang berbeda, maka formulir ini diisi dua kali secara bergantian.")
+st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and general information announcements from Sekolah Harapan Bangsa.")
+st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
+st.write("If you wish to receive invoices separately for both Father and Mother with different WA numbers and emails, please fill out the form twice alternately.")
 
 # Initialize SQLite database
 conn = sqlite3.connect('responses.db')
