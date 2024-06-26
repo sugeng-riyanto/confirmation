@@ -1,6 +1,7 @@
 streamlit
-streamlit-drawable-canvas
 pandas
 Pillow
+smtplib
+PyPDF2
 reportlab
-xlsxwriter
+streamlit_drawable_canvas
