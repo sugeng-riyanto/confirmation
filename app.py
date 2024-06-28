@@ -15,6 +15,7 @@ import warnings
 from datetime import datetime
 import pytz
 import re
+import os
 
 # Suppress specific FutureWarning
 warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas_compat")
@@ -24,6 +25,12 @@ st.title("Confirmation Form for Invoice Delivery and General Information")
 st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and general information announcements from Sekolah Harapan Bangsa.")
 st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
 st.write("If you wish to receive invoices separately for both Father and Mother with different WA numbers and emails, please fill out the form twice alternately.")
+
+# Print the current working directory
+print("Current working directory:", os.getcwd())
+
+# Check if the database file exists
+print("Database file exists:", os.path.isfile('responses.db'))
 
 # Initialize SQLite database
 conn = sqlite3.connect('responses.db')
@@ -114,7 +121,8 @@ if st.button("Submit"):
             ''', (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
             conn.commit()
             st.success("Form submitted successfully! Please kindly check your email. Thanks")
-
+            # Print the data to verify insertion
+            print("Data inserted:", (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
         except sqlite3.Error as e:
             st.error(f"An error occurred: {e}")
             conn.rollback()
@@ -133,69 +141,61 @@ if st.button("Submit"):
         can.drawString(100, 600, f"Nama Orang Tua               : {parent_name}")
         can.drawString(100, 575, f"WA aktif Orang Tua/Wali   : {wa_active_parent}")
         can.drawString(100, 550, f"Email aktif Orang Tua/Wali: {email_active_parent}")
-        can.drawString(100, 525, f"Timestamp: {current_time}")
-        can.drawString(100, 500, "Demikian konfirmasi dari kami. Terima Kasih.")
-        can.drawString(100, 475, "Hormat Kami,")
-        
+        can.drawString(100, 500, f"Timestamp                           : {current_time}")
+
         if signature_img:
-            img = Image.open(io.BytesIO(signature_img))
-            img.save("temp_sig.png")
-            can.drawImage("temp_sig.png", 100, 400, width=200, height=50)
+            signature_image = Image.open(io.BytesIO(signature_img))
+            signature_path = "/tmp/signature.png"
+            signature_image.save(signature_path)
+            can.drawImage(signature_path, 400, 450, width=100, height=50)
 
-        can.drawString(100, 350, "Orang Tua/Wali")
+        can.showPage()
         can.save()
-
         packet.seek(0)
+
         new_pdf = PdfReader(packet)
-        existing_pdf = PdfReader(open("konfirmasi.pdf", "rb"))
+        existing_pdf = PdfReader(open("template.pdf", "rb"))
         output = PdfWriter()
+
         page = existing_pdf.pages[0]
         page.merge_page(new_pdf.pages[0])
         output.add_page(page)
 
-        pdf_buffer = io.BytesIO()
-        output.write(pdf_buffer)
-        pdf_buffer.seek(0)
-        pdf_file = f"{student_name}_form.pdf"
+        output_stream = io.BytesIO()
+        output.write(output_stream)
+        output_stream.seek(0)
 
-        # Send email
+        # Prepare email
         msg = MIMEMultipart()
         msg["From"] = your_email
         msg["To"] = email_active_parent
-        msg["Subject"] = "Form Email and WA Number Submission Confirmation"
-
-        body = "Dear Parent/Guardian, here is your confirmation email and Whatsapp number, respectively. Thanks. Please find the attached PDF for your form submission."
+        msg["Subject"] = "Form Submission Confirmation"
+        body = "Dear Parent,\n\nThank you for your submission. Please find the attached confirmation form.\n\nBest regards,\nSekolah Harapan Bangsa"
         msg.attach(MIMEText(body, "plain"))
 
-        part = MIMEApplication(pdf_buffer.read(), Name=pdf_file)
-        part["Content-Disposition"] = f'attachment; filename="{pdf_file}"'
-        msg.attach(part)
+        # Attach PDF
+        attachment = MIMEApplication(output_stream.read(), _subtype="pdf")
+        attachment.add_header("Content-Disposition", "attachment", filename="confirmation.pdf")
+        msg.attach(attachment)
 
+        # Send email
         try:
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                server.starttls()
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
                 server.login(your_email, your_password)
-                server.send_message(msg)
-
+                server.sendmail(your_email, email_active_parent, msg.as_string())
             st.success("Confirmation email sent successfully!")
-
-        except smtplib.SMTPException as e:
+        except Exception as e:
             st.error(f"Failed to send email: {e}")
 
-        # Clear form fields
-        st.session_state.grade = ''
-        st.session_state.student_name = ''
-        st.session_state.parent_name = ''
-        st.session_state.wa_active_parent = ''
-        st.session_state.email_active_parent = ''
+# Admin login
+admin_password = "adminpassword"
+if 'admin_logged_in' not in st.session_state:
+    st.session_state.admin_logged_in = False
 
-# Admin page
-st.sidebar.title("Admin Login")
-admin_username = st.sidebar.text_input("Username")
-admin_password = st.sidebar.text_input("Password", type="password")
-
-if st.sidebar.button("Login"):
-    if admin_username == "Admin" and admin_password == "123456":
+if not st.session_state.admin_logged_in:
+    admin_username_input = st.sidebar.text_input("Admin Username")
+    admin_password_input = st.sidebar.text_input("Admin Password", type="password")
+    if admin_username_input == "admin" and admin_password_input == admin_password:
         st.session_state.admin_logged_in = True
 
 if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
@@ -213,6 +213,8 @@ if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
         # Fetch data from SQLite database
         c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
         rows = c.fetchall()
+        # Print the retrieved data for debugging
+        print("Retrieved data:", rows)
         if not rows:
             st.write("No data available.")
         else:
