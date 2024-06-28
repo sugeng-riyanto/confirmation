@@ -20,8 +20,6 @@ import re
 warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas_compat")
 
 # Initial setup
-#logo = Image.open("logo.png")
-#st.image(logo, width=100)
 st.title("Confirmation Form for Invoice Delivery and General Information")
 st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and general information announcements from Sekolah Harapan Bangsa.")
 st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
@@ -104,11 +102,17 @@ if st.button("Submit"):
             signature_img = buf.getvalue()
 
         # Insert data into SQLite database
-        c.execute('''
-            INSERT INTO responses (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-        ''', (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
-        conn.commit()
+        try:
+            c.execute('''
+                INSERT INTO responses (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            ''', (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
+            conn.commit()
+            st.success("Form submitted successfully! Please kindly check your email. Thanks")
+
+        except sqlite3.Error as e:
+            st.error(f"An error occurred: {e}")
+            conn.rollback()
 
         # Generate PDF using template
         packet = io.BytesIO()
@@ -162,13 +166,17 @@ if st.button("Submit"):
         part["Content-Disposition"] = f'attachment; filename="{pdf_file}"'
         msg.attach(part)
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(your_email, your_password)
-            server.send_message(msg)
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(your_email, your_password)
+                server.send_message(msg)
 
-        st.success("Form submitted successfully! please kindly check your email. Thanks")
-        
+            st.success("Confirmation email sent successfully!")
+
+        except smtplib.SMTPException as e:
+            st.error(f"Failed to send email: {e}")
+
         # Clear form fields
         st.session_state.grade = ''
         st.session_state.student_name = ''
@@ -197,64 +205,73 @@ if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
     st.write("Download all form responses as an Excel file.")
     
     # Fetch data from SQLite database
-    c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
-    rows = c.fetchall()
-    if not rows:
-        st.write("No data available.")
-    else:
-        df = pd.DataFrame(rows, columns=["ID", "Grade", "Student Name", "Parent Name", "WA Active Parent", "Email Active Parent", "Timestamp"])
-        st.write(df)
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False)
-        st.download_button(
-            label="Download Excel",
-            data=excel_buffer,
-            file_name="form_responses.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        
-        # CRUD functionality
-        st.write("Manage Responses")
-        response_id = st.number_input("Response ID", min_value=1, step=1)
-        action = st.selectbox("Action", ["View", "Update", "Delete"])
+    try:
+        c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
+        rows = c.fetchall()
+        if not rows:
+            st.write("No data available.")
+        else:
+            df = pd.DataFrame(rows, columns=["ID", "Grade", "Student Name", "Parent Name", "WA Active Parent", "Email Active Parent", "Timestamp"])
+            st.write(df)
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False)
+            st.download_button(
+                label="Download Excel",
+                data=excel_buffer,
+                file_name="form_responses.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+            # CRUD functionality
+            st.write("Manage Responses")
+            response_id = st.number_input("Response ID", min_value=1, step=1)
+            action = st.selectbox("Action", ["View", "Update", "Delete"])
 
-        if st.button("Execute"):
-            if action == "View":
-                c.execute('SELECT * FROM responses WHERE id=?', (response_id,))
-                response = c.fetchone()
-                if response:
-                    st.write(f"Grade: {response[1]}")
-                    st.write(f"Student Name: {response[2]}")
-                    st.write(f"Parent Name: {response[3]}")
-                    st.write(f"WA Active Parent: {response[4]}")
-                    st.write(f"Email Active Parent: {response[5]}")
-                    st.write(f"Timestamp: {response[7]}")
-                    if response[6]:
-                        st.image(Image.open(io.BytesIO(response[6])), width=200)
-                else:
-                    st.write("No response found with that ID.")
-            elif action == "Update":
-                new_grade = st.selectbox("New Grade", ["Grade 7A", "Grade 7B", "Grade 8A", "Grade 8B", "Grade 9A", "Grade 9B", "Grade 10", "Grade 11", "Grade 12"])
-                new_student_name = st.text_input("New Student Name")
-                new_parent_name = st.text_input("New Parent Name")
-                new_wa_active_parent = st.text_input("New WA Active Parent")
-                new_email_active_parent = st.text_input("New Email Active Parent")
-                
-                if st.button("Update Response"):
-                    c.execute('''
-                        UPDATE responses
-                        SET grade=?, student_name=?, parent_name=?, wa_active_parent=?, email_active_parent=?
-                        WHERE id=?
-                    ''', (new_grade, new_student_name, new_parent_name, new_wa_active_parent, new_email_active_parent, response_id))
-                    conn.commit()
-                    st.success("Response updated successfully!")
-            elif action == "Delete":
-                c.execute('DELETE FROM responses WHERE id=?', (response_id,))
-                conn.commit()
-                st.success("Response deleted successfully!")
-else:
-    st.sidebar.error("Invalid username or password")
+            if st.button("Execute"):
+                if action == "View":
+                    c.execute('SELECT * FROM responses WHERE id=?', (response_id,))
+                    response = c.fetchone()
+                    if response:
+                        st.write(f"Grade: {response[1]}")
+                        st.write(f"Student Name: {response[2]}")
+                        st.write(f"Parent Name: {response[3]}")
+                        st.write(f"WA Active Parent: {response[4]}")
+                        st.write(f"Email Active Parent: {response[5]}")
+                        st.write(f"Timestamp: {response[7]}")
+                        if response[6]:
+                            st.image(Image.open(io.BytesIO(response[6])), width=200)
+                    else:
+                        st.write("No response found with that ID.")
+                elif action == "Update":
+                    new_grade = st.selectbox("New Grade", ["Grade 7A", "Grade 7B", "Grade 8A", "Grade 8B", "Grade 9A", "Grade 9B", "Grade 10", "Grade 11", "Grade 12"])
+                    new_student_name = st.text_input("New Student Name")
+                    new_parent_name = st.text_input("New Parent Name")
+                    new_wa_active_parent = st.text_input("New WA Active Parent")
+                    new_email_active_parent = st.text_input("New Email Active Parent")
+                    
+                    if st.button("Update Response"):
+                        try:
+                            c.execute('''
+                                UPDATE responses
+                                SET grade=?, student_name=?, parent_name=?, wa_active_parent=?, email_active_parent=?
+                                WHERE id=?
+                            ''', (new_grade, new_student_name, new_parent_name, new_wa_active_parent, new_email_active_parent, response_id))
+                            conn.commit()
+                            st.success("Response updated successfully!")
+                        except sqlite3.Error as e:
+                            st.error(f"An error occurred: {e}")
+                            conn.rollback()
+                elif action == "Delete":
+                    try:
+                        c.execute('DELETE FROM responses WHERE id=?', (response_id,))
+                        conn.commit()
+                        st.success("Response deleted successfully!")
+                    except sqlite3.Error as e:
+                        st.error(f"An error occurred: {e}")
+                        conn.rollback()
+    except sqlite3.Error as e:
+        st.error(f"An error occurred while fetching data: {e}")
 
 # Close SQLite connection
 conn.close()
