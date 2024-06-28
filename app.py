@@ -28,6 +28,8 @@ st.write("If you wish to receive invoices separately for both Father and Mother 
 # Initialize SQLite database
 conn = sqlite3.connect('responses.db')
 c = conn.cursor()
+
+# Check if 'responses' table exists, and create if it doesn't
 c.execute('''
     CREATE TABLE IF NOT EXISTS responses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
