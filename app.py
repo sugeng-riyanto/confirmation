@@ -20,8 +20,8 @@ import re
 warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas_compat")
 
 # Initial setup
-logo = Image.open("logo.png")
-st.image(logo, width=100)
+#logo = Image.open("logo.png")
+#st.image(logo, width=100)
 st.title("Confirmation Form for Invoice Delivery and General Information")
 st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and general information announcements from Sekolah Harapan Bangsa.")
 st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
