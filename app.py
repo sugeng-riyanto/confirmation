@@ -15,7 +15,6 @@ import warnings
 from datetime import datetime
 import pytz
 import re
-import os
 
 # Suppress specific FutureWarning
 warnings.filterwarnings("ignore", category=FutureWarning, module="pyarrow.pandas_compat")
@@ -26,22 +25,11 @@ st.write("Dear Madam/Sir, Here is the confirmation form for sending invoices and
 st.write("Please ensure that the WA (WhatsApp) number and email formats are correct and currently active.")
 st.write("If you wish to receive invoices separately for both Father and Mother with different WA numbers and emails, please fill out the form twice alternately.")
 
-# Print the current working directory
-print("Current working directory:", os.getcwd())
-
-# Check if the database file exists
-print("Database file exists:", os.path.isfile('responses.db'))
-
 # Initialize SQLite database
 conn = sqlite3.connect('responses.db')
 c = conn.cursor()
-
-# Drop the table if it exists to reset the schema
-c.execute('DROP TABLE IF EXISTS responses')
-
-# Create the table with the correct schema
 c.execute('''
-    CREATE TABLE responses (
+    CREATE TABLE IF NOT EXISTS responses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         grade TEXT,
         student_name TEXT,
@@ -114,24 +102,17 @@ if st.button("Submit"):
             signature_img = buf.getvalue()
 
         # Insert data into SQLite database
-        try:
-            c.execute('''
-                INSERT INTO responses (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            ''', (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
-            conn.commit()
-            st.success("Form submitted successfully! Please kindly check your email. Thanks")
-            # Print the data to verify insertion
-            print("Data inserted:", (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
-        except sqlite3.Error as e:
-            st.error(f"An error occurred: {e}")
-            conn.rollback()
+        c.execute('''
+            INSERT INTO responses (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+        ''', (grade, student_name, parent_name, wa_active_parent, email_active_parent, signature_img))
+        conn.commit()
 
         # Generate PDF using template
         packet = io.BytesIO()
         can = canvas.Canvas(packet, pagesize=letter)
         
-        # Current timestamp in GMT+7
+        # Current timestamp
         tz = pytz.timezone('Asia/Jakarta')
         current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -141,61 +122,65 @@ if st.button("Submit"):
         can.drawString(100, 600, f"Nama Orang Tua               : {parent_name}")
         can.drawString(100, 575, f"WA aktif Orang Tua/Wali   : {wa_active_parent}")
         can.drawString(100, 550, f"Email aktif Orang Tua/Wali: {email_active_parent}")
-        can.drawString(100, 500, f"Timestamp                           : {current_time}")
-
+        can.drawString(100, 525, f"Timestamp: {current_time}")
+        can.drawString(100, 500, "Demikian konfirmasi dari kami. Terima Kasih.")
+        can.drawString(100, 475, "Hormat Kami,")
+        
         if signature_img:
-            signature_image = Image.open(io.BytesIO(signature_img))
-            signature_path = "/tmp/signature.png"
-            signature_image.save(signature_path)
-            can.drawImage(signature_path, 400, 450, width=100, height=50)
+            img = Image.open(io.BytesIO(signature_img))
+            img.save("temp_sig.png")
+            can.drawImage("temp_sig.png", 100, 400, width=200, height=50)
 
-        can.showPage()
+        can.drawString(100, 350, "Orang Tua/Wali")
         can.save()
-        packet.seek(0)
 
+        packet.seek(0)
         new_pdf = PdfReader(packet)
         existing_pdf = PdfReader(open("konfirmasi.pdf", "rb"))
         output = PdfWriter()
-
         page = existing_pdf.pages[0]
         page.merge_page(new_pdf.pages[0])
         output.add_page(page)
 
-        output_stream = io.BytesIO()
-        output.write(output_stream)
-        output_stream.seek(0)
+        pdf_buffer = io.BytesIO()
+        output.write(pdf_buffer)
+        pdf_buffer.seek(0)
+        pdf_file = f"{student_name}_form.pdf"
 
-        # Prepare email
+        # Send email
         msg = MIMEMultipart()
         msg["From"] = your_email
         msg["To"] = email_active_parent
-        msg["Subject"] = "Form Submission Confirmation"
-        body = "Dear Parent,\n\nThank you for your submission. Please find the attached confirmation form.\n\nBest regards,\nSekolah Harapan Bangsa"
+        msg["Subject"] = "Form Email and WA Number Submission Confirmation"
+
+        body = "Dear Parent/Guardian, here is your confirmation email and Whatsapp number, respectively. Thanks. Please find the attached PDF for your form submission."
         msg.attach(MIMEText(body, "plain"))
 
-        # Attach PDF
-        attachment = MIMEApplication(output_stream.read(), _subtype="pdf")
-        attachment.add_header("Content-Disposition", "attachment", filename="confirmation.pdf")
-        msg.attach(attachment)
+        part = MIMEApplication(pdf_buffer.read(), Name=pdf_file)
+        part["Content-Disposition"] = f'attachment; filename="{pdf_file}"'
+        msg.attach(part)
 
-        # Send email
-        try:
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                server.login(your_email, your_password)
-                server.sendmail(your_email, email_active_parent, msg.as_string())
-            st.success("Confirmation email sent successfully!")
-        except Exception as e:
-            st.error(f"Failed to send email: {e}")
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(your_email, your_password)
+            server.send_message(msg)
 
-# Admin login
-admin_password = "adminpassword"
-if 'admin_logged_in' not in st.session_state:
-    st.session_state.admin_logged_in = False
+        st.success("Form submitted successfully! Please kindly check your email. Thanks")
+        
+        # Clear form fields
+        st.session_state.grade = ''
+        st.session_state.student_name = ''
+        st.session_state.parent_name = ''
+        st.session_state.wa_active_parent = ''
+        st.session_state.email_active_parent = ''
 
-if not st.session_state.admin_logged_in:
-    admin_username_input = st.sidebar.text_input("Admin Username")
-    admin_password_input = st.sidebar.text_input("Admin Password", type="password")
-    if admin_username_input == "admin" and admin_password_input == admin_password:
+# Admin page
+st.sidebar.title("Admin Login")
+admin_username = st.sidebar.text_input("Username")
+admin_password = st.sidebar.text_input("Password", type="password")
+
+if st.sidebar.button("Login"):
+    if admin_username == "Admin" and admin_password == "123456":
         st.session_state.admin_logged_in = True
 
 if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
@@ -209,76 +194,56 @@ if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
     st.title("Admin Page")
     st.write("Download all form responses as an Excel file.")
     
-    try:
-        # Fetch data from SQLite database
-        c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
-        rows = c.fetchall()
-        # Print the retrieved data for debugging
-        print("Retrieved data:", rows)
-        if not rows:
-            st.write("No data available.")
-        else:
-            df = pd.DataFrame(rows, columns=["ID", "Grade", "Student Name", "Parent Name", "WA Active Parent", "Email Active Parent", "Timestamp"])
-            st.write(df)
-            excel_buffer = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-                df.to_excel(writer, index=False)
-            st.download_button(
-                label="Download Excel",
-                data=excel_buffer,
-                file_name="form_responses.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            # CRUD functionality
-            st.write("Manage Responses")
-            response_id = st.number_input("Response ID", min_value=1, step=1)
-            action = st.selectbox("Action", ["View", "Update", "Delete"])
+    # Fetch data from SQLite database
+    c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
+    rows = c.fetchall()
+    if not rows:
+        st.write("No data available.")
+    else:
+        df = pd.DataFrame(rows, columns=["ID", "Grade", "Student Name", "Parent Name", "WA Active Parent", "Email Active Parent", "Timestamp"])
+        st.write(df)
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False)
+        st.download_button(
+            label="Download Excel",
+            data=excel_buffer,
+            file_name="form_responses.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
-            if st.button("Execute"):
-                if action == "View":
-                    c.execute('SELECT * FROM responses WHERE id=?', (response_id,))
-                    response = c.fetchone()
-                    if response:
-                        st.write(f"Grade: {response[1]}")
-                        st.write(f"Student Name: {response[2]}")
-                        st.write(f"Parent Name: {response[3]}")
-                        st.write(f"WA Active Parent: {response[4]}")
-                        st.write(f"Email Active Parent: {response[5]}")
-                        st.write(f"Timestamp: {response[7]}")
-                        if response[6]:
-                            st.image(Image.open(io.BytesIO(response[6])), width=200)
-                    else:
-                        st.write("No response found with that ID.")
-                elif action == "Update":
-                    new_grade = st.selectbox("New Grade", ["Grade 7A", "Grade 7B", "Grade 8A", "Grade 8B", "Grade 9A", "Grade 9B", "Grade 10", "Grade 11", "Grade 12"])
-                    new_student_name = st.text_input("New Student Name")
-                    new_parent_name = st.text_input("New Parent Name")
-                    new_wa_active_parent = st.text_input("New WA Active Parent")
-                    new_email_active_parent = st.text_input("New Email Active Parent")
-                    
-                    if st.button("Update Response"):
-                        try:
-                            c.execute('''
-                                UPDATE responses
-                                SET grade=?, student_name=?, parent_name=?, wa_active_parent=?, email_active_parent=?
-                                WHERE id=?
-                            ''', (new_grade, new_student_name, new_parent_name, new_wa_active_parent, new_email_active_parent, response_id))
-                            conn.commit()
-                            st.success("Response updated successfully!")
-                        except sqlite3.Error as e:
-                            st.error(f"An error occurred: {e}")
-                            conn.rollback()
-                elif action == "Delete":
-                    try:
-                        c.execute('DELETE FROM responses WHERE id=?', (response_id,))
-                        conn.commit()
-                        st.success("Response deleted successfully!")
-                    except sqlite3.Error as e:
-                        st.error(f"An error occurred: {e}")
-                        conn.rollback()
-    except sqlite3.Error as e:
-        st.error(f"An error occurred while fetching data: {e}")
+        # Admin CRUD functionalities
+        st.subheader("Edit/Delete Responses")
+
+        selected_id = st.selectbox("Select Response ID to Edit/Delete", df["ID"])
+        selected_row = df[df["ID"] == selected_id]
+
+        if not selected_row.empty:
+            st.write(selected_row)
+
+            new_grade = st.selectbox("New Grade", ["Grade 7A", "Grade 7B", "Grade 8A", "Grade 8B", "Grade 9A", "Grade 9B", "Grade 10", "Grade 11", "Grade 12"], index=0)
+            new_student_name = st.text_input("New Student Name", selected_row["Student Name"].values[0])
+            new_parent_name = st.text_input("New Parent Name", selected_row["Parent Name"].values[0])
+            new_wa_active_parent = st.text_input("New WA Active Parent", selected_row["WA Active Parent"].values[0])
+            new_email_active_parent = st.text_input("New Email Active Parent", selected_row["Email Active Parent"].values[0])
+
+            if st.button("Update"):
+                c.execute('''
+                    UPDATE responses
+                    SET grade = ?, student_name = ?, parent_name = ?, wa_active_parent = ?, email_active_parent = ?
+                    WHERE id = ?
+                ''', (new_grade, new_student_name, new_parent_name, new_wa_active_parent, new_email_active_parent, selected_id))
+                conn.commit()
+                st.success("Response updated successfully!")
+
+            if st.button("Delete"):
+                c.execute('''
+                    DELETE FROM responses WHERE id = ?
+                ''', (selected_id,))
+                conn.commit()
+                st.success("Response deleted successfully!")
+else:
+    st.sidebar.error("Invalid username or password")
 
 # Close SQLite connection
 conn.close()
