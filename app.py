@@ -28,8 +28,13 @@ st.write("If you wish to receive invoices separately for both Father and Mother 
 # Initialize SQLite database
 conn = sqlite3.connect('responses.db')
 c = conn.cursor()
+
+# Drop the table if it exists to reset the schema
+c.execute('DROP TABLE IF EXISTS responses')
+
+# Create the table with the correct schema
 c.execute('''
-    CREATE TABLE IF NOT EXISTS responses (
+    CREATE TABLE responses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         grade TEXT,
         student_name TEXT,
@@ -204,8 +209,8 @@ if 'admin_logged_in' in st.session_state and st.session_state.admin_logged_in:
     st.title("Admin Page")
     st.write("Download all form responses as an Excel file.")
     
-    # Fetch data from SQLite database
     try:
+        # Fetch data from SQLite database
         c.execute('SELECT id, grade, student_name, parent_name, wa_active_parent, email_active_parent, timestamp FROM responses')
         rows = c.fetchall()
         if not rows:
